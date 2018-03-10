@@ -12,15 +12,15 @@ import ruamel.yaml as yaml
 from ruamel.yaml.scalarstring import SingleQuotedScalarString, DoubleQuotedScalarString
 import sys
 import io
+import logging, coloredlogs
+import datetime
+try:
+    import http.client as http_client
+except ImportError:
+    # Python 2
+    import httplib as http_client
+
 #logger = logging.getLogger(__name__)
-
-# open configuration
-with open("config.yml", 'r') as stream:
-    try:
-        Configuration = yaml.load(stream, Loader=yaml.RoundTripLoader)
-    except yaml.YAMLError as exc:
-        print("{} [{}]".format("Error in your config.yml please check in", exc))
-
 
 def set_default(obj):
     if isinstance(obj, set):
@@ -91,21 +91,106 @@ USER_AGENT = ['Dalvik/2.1.0 (Linux; U; Android 5.0.1; GT-I9508V Build/LRX22C)',
 class Utils:
     def __init__(self):
         self.secret = "aeffI"
-        self.url = "https://api.vhack.cc/mobile/5/"
-        self.username = Configuration["username"]
-        self.password = Configuration["password"]
+        self.url = "https://api.vhack.cc/mobile/6/"
+        self.Configuration = self.readConfiguration()
+        try:
+            self.username = str(self.Configuration["username"])
+            self.password = str(self.Configuration["password"])
+        except KeyError as e:
+            print("Error Configuration {}".format(e))
+            exit(0)
         if self.username is None or self.password is None:
           print("please Change Username/Password to config.yml")
           exit(0)
         self.user_agent = self.generateUA(self.username + self.password)
+    
         try:
-            self.accessToken = Configuration["accessToken"]
+            self.generateConfiguration(uID="", accessToken="")
+        except TypeError:
+            self.generateConfiguration()
+
+        try:
+            self.accessToken = self.Configuration["accessToken"]
         except:
             self.accessToken = None
         try:
-            self.uID = Configuration["uID"]
+            self.uID = self.Configuration["uID"]
         except KeyError: 
             self.uID = None
+        self.login = "0"
+
+    def readConfiguration(self):
+      # open configuration
+      with open("config.yml", 'rb') as stream:
+          try:
+              Configuration = yaml.load(stream, Loader=yaml.RoundTripLoader)
+          except yaml.YAMLError as exc:
+              print("{} [{}]".format("Error in your config.yml please check in", exc))
+              exit(0)
+
+      if Configuration:
+          return Configuration
+
+    def generateConfiguration(self, uID=False, accessToken=False):
+        # append uID/accessToken in configuration file.
+        self.Configuration['username'] = self.username
+        self.Configuration['password'] = self.password
+
+        try:
+            self.Configuration['uID'] = uID
+        except KeyError:
+            self.Configuration['uID'] = self.uID
+
+        try:
+            self.Configuration['accessToken'] = accessToken
+        except KeyError:
+            self.Configuration['accessToken'] = self.accessToken
+
+        if not self.Configuration['accessToken'] and not self.Configuration['uID']:
+            request = requests.Session()
+            request.headers.update({'User-agent': self.user_agent})
+            url = 'login.php'
+            url_login = self.Login(url, self.username, self.password)
+
+            try:
+                result = request.get(url_login, timeout=3, verify=False)
+            except requests.exceptions.ConnectTimeout:
+                print("Request Timeout... TimeOut connection '{}'".format(url))
+                exit(0)
+
+            except requests.exceptions.ConnectionError:
+                print("Request Timeout... Connection Error '{}' with code: [{}]".format(url, url_login.status_code))
+                exit(0)
+
+            result.encoding = 'UTF-8'
+            parseJson = result.json()
+
+            check_return_server = self.CheckServerError(parseJson)
+            if check_return_server is not None:
+                return "Server Error: [{}] {}".format(check_return_server[0], check_return_server[1])
+
+            self.accessToken = str(parseJson["accesstoken"])
+            self.uID = int(parseJson["uid"].encode("UTF-8"))
+
+            self.Configuration.yaml_add_eol_comment("# <- Your Username Account", 'username', column=5)
+            self.Configuration.yaml_add_eol_comment("# <- Tour Password Account\n\n", 'password', column=5)
+            self.Configuration.yaml_add_eol_comment("# <- Automatical uID for your account don't change /!\\", 'uID', column=5)
+            self.Configuration.yaml_add_eol_comment("# <- Automatical accessToken for your account don't change /!\\", 'accessToken', column=5)
+            
+            with io.open('config.yml', 'wb') as outfile:
+                yaml.dump(self.Configuration, stream=outfile, default_flow_style=False, 
+                          Dumper=yaml.RoundTripDumper, indent=4, block_seq_indent=1)
+             
+        else:
+
+            self.Configuration.yaml_add_eol_comment("# <- Your Username Account", 'username', column=5)
+            self.Configuration.yaml_add_eol_comment("# <- Tour Password Account\n\n", 'password', column=5)
+            self.Configuration.yaml_add_eol_comment("# <- Automatical uID for your account don't change /!\\", 'uID', column=5)
+            self.Configuration.yaml_add_eol_comment("# <- Automatical accessToken for your account don't change /!\\", 'accessToken', column=5)
+            
+            with io.open('config.yml', 'w') as outfile:
+                yaml.dump(self.Configuration, stream=outfile, default_flow_style=False, 
+                          Dumper=yaml.RoundTripDumper, indent=4, block_seq_indent=1)
 
     def generateUA(self, identifier):
         pick = int(self.md5hash(identifier), 16)
@@ -137,7 +222,7 @@ class Utils:
                                              self.generateUser(jsonString), str8)
 
     def generateURL(self, uid, php, **kwargs):
-        jsonString = {'uid': self.uID, 'accesstoken': str(self.accessToken)}
+        jsonString = {'uid': str(self.uID), 'accesstoken': str(self.accessToken)}
         jsonString = json.dumps(jsonString, default=set_default)
 
         str8 = self.md5hash("{}{}{}".format(jsonString, jsonString,
@@ -167,53 +252,89 @@ class Utils:
     def requestString(self, php, **kwargs):
         # print("Request: {}, {}".format(php, self.uID))
         self.user_agent = self.generateUA("testtest")
+        try:
+            if kwargs["debug"] is True:
+                coloredlogs.install(level='DEBUG')
+                coloredlogs.install(level='DEBUG', logger=logger)
+                http_client.HTTPConnection.debuglevel = 1
+                # You must initialize logging, otherwise you'll not see debug output.
+                logging.basicConfig()
+                logging.getLogger().setLevel(logging.DEBUG)
+                requests_log = logging.getLogger("requests.packages.urllib3")
+                requests_log.setLevel(logging.DEBUG)
+                requests_log.propagate = True
+        except:
+            pass
+
         time.sleep(0.5)
         i = 0
         while True:
             if i > 10:
                 exit(0)
-            if self.uID is None or self.accessToken is None:
+            if self.uID is None or self.accessToken is None or self.login is "0":
+                print("test")
                 # connect login.
                 request = requests.Session()
                 request.headers.update({'User-agent': self.user_agent})
                 url_login = self.Login('login.php', self.username, self.password)
-                result = request.get(url_login)
+                try:
+                    result = request.get(url_login, timeout=3, verify=False)
+                except requests.exceptions.ConnectTimeout:
+                    print("Request Timeout... TimeOut connection {}".format(php))
+                    exit(0)
+
+                except requests.exceptions.ConnectionError:
+                    print("Request Timeout... Connection Error '{}' with code: [{}]".format('login.php', url_login.status_code))
+                    exit(0)
+
                 result.encoding = 'UTF-8'
                 parseJson = result.json()
 
                 check_return_server = self.CheckServerError(parseJson)
                 if check_return_server is not None:
                     return "Server Error: [{}] {}".format(check_return_server[0], check_return_server[1])
-
+                
+                self.login = "1"
                 self.accessToken = str(parseJson["accesstoken"])
                 self.uID = int(parseJson["uid"].encode("UTF-8"))
 
-                # append uID/accessToken in configuration file.
-                Configuration['username'] = self.username
-                Configuration['password'] = self.password
-                Configuration['uID'] = self.uID
-                Configuration['accessToken'] = self.accessToken
+                self.generateConfiguration(self.uID, self.accessToken)
                 
-                Configuration.yaml_add_eol_comment("# <- Your Username Account", 'username', column=5)
-                Configuration.yaml_add_eol_comment("# <- Tour Password Account\n\n", 'password', column=5)
-                Configuration.yaml_add_eol_comment("# <- Automatical uID for your account don't change /!\\", 'uID', column=5)
-                Configuration.yaml_add_eol_comment("# <- Automatical accessToken for your account don't change /!\\", 'accessToken', column=5)
-                with io.open('config.yml', 'w') as outfile:
-                    yaml.dump(Configuration, stream=outfile, default_flow_style=False, Dumper=yaml.RoundTripDumper, indent=4, block_seq_indent=1)
-              
                 # Create First request.
-                result = request.get(self.generateURL(self.uID, php, **kwargs))
+                try:
+                    result = request.get(self.generateURL(self.uID, php, **kwargs), timeout=3)
+                except requests.exceptions.ConnectTimeout:
+                    print("Request Timeout... TimeOut connection {}".format(php))
+                    exit(0)
+
+                except requests.exceptions.ConnectionError:
+                    print("Request Timeout... Connection Error '{}' with code: [{}]".format(php, url_login.status_code))
+                    exit(0)
+
                 return result.text
 
             else:
                 request = requests.Session()
                 request.headers.update({'User-agent': self.user_agent})
-                # return just request don't login after
-                result = request.get(self.generateURL(self.uID, php, **kwargs))
+                
+                # return just request don't login before.
+                try:
+                    result = request.get(self.generateURL(self.uID, php, **kwargs), timeout=3)
+                except requests.exceptions.ConnectTimeout:
+                    print("Request Timeout... TimeOut connection {}".format(php))
+                    exit(0)
+
+                except requests.exceptions.ConnectionError:
+                    print("Request Timeout... Connection Error '{}' with code: [{}]".format(php, url_login.status_code))
+                    exit(0)
+
+
                 result.encoding = 'UTF-8'
                 parseJson = result.json()
-                self.accessToken = str(parseJson["accesstoken"])
-                print(self.accessToken)
+                try:
+                   self.accessToken = str(parseJson["accesstoken"])
+                except KeyError:
+                   pass
 
             i = i + 1
             return result.text
