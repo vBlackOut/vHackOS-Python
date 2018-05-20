@@ -1,9 +1,9 @@
-username:  # <- Your Username Account
-password:  # <- Tour Password Account
+username:  #SpRaZeDoPe <- Your Username Account
+password:  #ericlaura123<- Tour Password Account
 
-debug: false # <- debug mode dev online
+debug: true # <- debug mode dev online
 
-sync_mobile: false # <- If your are uID and accessToken and your phone bot use configuration for login please replace your uid and accesstoken sync to phone.
+sync_mobile: true # <- If your are uID and accessToken and your phone bot use configuration for login please replace your uid and accesstoken sync to phone.
 
 # exemple ['All', '!showMsgTotalBruteForceInfo'] <- show all but don't show Total Brute Force Information return bot print.
 # exemple ['showMsgTotalBruteForceInfo'] <- just show Total Brute Force Information return bot print.
@@ -16,5 +16,5 @@ show_info: [All] # <- show the return bot print information
 attack_mode: new
 
 uID:  # <- Automatical uID for your account don't change /!\
-accessToken:  # <- Automatical accessToken for your account don't change /!\
+accessToken:  #2102 <- Automatical accessToken for your account don't change /!\
 update: [SDK, FW, AV, BP, IPSP, BRUTE]
